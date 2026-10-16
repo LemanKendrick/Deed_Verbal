@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deed Call Dictation</title>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#ffffff; --text:#1d2330; --muted:#6b7385; --line:#d9dde5;
+  --accent:#2563eb; --accent-2:#1e4fc2; --ok:#15803d; --bad:#b91c1c; --warn:#b45309;
+  --sel:#e6eefc; --live:#dc2626; --mono:"Consolas","Menlo",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#15181e; --panel:#1e232b; --text:#e6e9ef; --muted:#9099aa; --line:#2f3642;
+    --accent:#4c8dff; --accent-2:#6aa0ff; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24;
+    --sel:#24324a; --live:#ef4444;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0 12px 0 0}
+#fileName{color:var(--muted);font-size:13px;margin-right:auto}
+button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{background:var(--accent-2)}
+label.chk{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted);cursor:pointer}
+main{max-width:980px;margin:0 auto;padding:14px 16px 40px}
+.live{display:flex;gap:14px;align-items:stretch;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+#mic{width:86px;min-height:86px;border-radius:50%;border:3px solid var(--line);background:var(--panel);font-size:13px;font-weight:600;color:var(--muted);flex:none;user-select:none;touch-action:none}
+#mic.on{border-color:var(--live);color:var(--live);box-shadow:0 0 0 6px color-mix(in srgb,var(--live) 20%,transparent)}
+.livebody{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+#status{font-size:13px;font-weight:600;color:var(--muted)}
+#status.listening{color:var(--live)} #status.ok{color:var(--ok)} #status.bad{color:var(--bad)}
+#interim{font-size:20px;min-height:30px;word-wrap:break-word}
+#interim .final{color:var(--text)} #interim .tentative{color:var(--muted)}
+.manual{display:flex;gap:8px;margin-top:10px}
+#manual{flex:1;font:16px var(--mono);padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text)}
+#manual:focus,.editbox:focus{outline:2px solid var(--accent);outline-offset:-1px}
+table{width:100%;border-collapse:collapse;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line)}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:color-mix(in srgb,var(--panel) 85%,var(--line))}
+td.n{width:42px;color:var(--muted);text-align:right}
+td.b,td.d{font:16px var(--mono);white-space:nowrap}
+td.f{font:13px var(--mono);color:var(--muted);white-space:nowrap}
+td.raw{font-size:12px;color:var(--muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.x{width:70px;text-align:right;white-space:nowrap}
+td.x button{padding:2px 7px;font-size:13px}
+tr.row{cursor:pointer}
+tr.row.sel td{background:var(--sel)}
+tr.row.flash td{animation:flash 1.2s}
+@keyframes flash{from{background:color-mix(in srgb,var(--ok) 30%,transparent)}to{background:transparent}}
+.editbox{width:100%;font:15px var(--mono);padding:4px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--panel);color:var(--text)}
+#empty{padding:26px;text-align:center;color:var(--muted)}
+.help{margin-top:12px;font-size:12.5px;color:var(--muted)}
+.help kbd{font:12px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:.95}
+#micbar{display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px}
+#micbar span{flex:1;min-width:220px}
+#warn{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--warn);border-radius:8px;color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Deed Call Dictation</h1>
+  <span id="fileName">unsaved</span>
+  <label class="chk"><input type="checkbox" id="optReadback"> Read back</label>
+  <button id="btnOpen">Open…</button>
+  <button id="btnSave" class="primary">Save</button>
+  <button id="btnSaveAs">Save As…</button>
+  <button id="btnCopy">Copy</button>
+  <button id="btnClear">Clear</button>
+  <input type="file" id="fileInput" accept=".txt,text/plain" hidden>
+</header>
+
+<main>
+  <div id="warn"></div>
+  <div id="micbar">
+    <span id="micbarText">Microphone not enabled yet.</span>
+    <button id="btnMic" class="primary">Enable microphone</button>
+  </div>
+
+  <div class="live">
+    <button id="mic" title="Hold to talk (or hold Space)">HOLD<br>TO TALK</button>
+    <div class="livebody">
+      <div id="status">Ready — hold Space and say a call</div>
+      <div id="interim"></div>
+    </div>
+  </div>
+
+  <div class="manual">
+    <input id="manual" placeholder="Type or correct a call, e.g.  N 45 30 15 E 125.50   — Enter to add" autocomplete="off" spellcheck="false">
+    <button id="btnAdd">Add</button>
+  </div>
+
+  <table id="tbl">
+    <thead><tr><th>#</th><th>Bearing</th><th>Distance</th><th>File line</th><th>Heard</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="empty">No calls yet.</div>
+
+  <div class="help">
+    <kbd>Space</kbd> hold to talk ·
+    click a row to insert new calls after it (click again or <kbd>Esc</kbd> to return to end) ·
+    double-click to edit · <kbd>Del</kbd> deletes selected ·
+    <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
+    Voice commands: "undo" / "scratch that", "read back", "save".
+    Say: "North 45 degrees 30 minutes 15 seconds East 125.5 feet", or "north 45 30 15 east 125.5",
+    or "due west 80 feet". Poles, rods, perches, chains and links convert to feet.
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+// ==PARSER== (no DOM dependencies)
+const NUMW={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+const TENS={twenty:20,thirty:30,forty:40,fourty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+const QW={north:'N',n:'N',nor:'N',northerly:'N',south:'S',s:'S',southerly:'S',east:'E',e:'E',ease:'E',easterly:'E',west:'W',w:'W',westerly:'W'};
+const UNITW={degree:'deg',degrees:'deg',deg:'deg',degs:'deg',minute:'min',minutes:'min',min:'min',mins:'min',second:'sec',seconds:'sec',sec:'sec',secs:'sec'};
+const DISTW={feet:['ft',1],foot:['ft',1],ft:['ft',1],pole:['poles',16.5],poles:['poles',16.5],pol:['poles',16.5],rod:['rods',16.5],rods:['rods',16.5],perch:['perches',16.5],perches:['perches',16.5],chain:['chains',66],chains:['chains',66],ch:['chains',66],link:['links',0.66],links:['links',0.66]};
+const DUE={N:{ns:'N',ew:'E',d:0,m:0,s:0},S:{ns:'S',ew:'E',d:0,m:0,s:0},E:{ns:'N',ew:'E',d:90,m:0,s:0},W:{ns:'N',ew:'W',d:90,m:0,s:0}};
+
+function digitsAfter(w,i){ // "point five zero" / "point 50"
+  let s='',j=i;
+  while(j<w.length){
+    const y=w[j];
+    if(/^\d+$/.test(y)) s+=y;
+    else if(y in NUMW && NUMW[y]<10) s+=NUMW[y];
+    else break;
+    j++;
+  }
+  return {s,end:j};
+}
+
+function tokenize(text){
+  let s=' '+String(text).toLowerCase()+' ';
+  s=s.replace(/[’‘′]/g,"'").replace(/[”“″]/g,'"');
+  s=s.replace(/'s\b/g,'');
+  s=s.replace(/[°º]/g,' deg ').replace(/'/g," ' ").replace(/"/g,' " ');
+  s=s.replace(/(\d),(\d{3})\b/g,'$1$2');
+  s=s.replace(/(\d)\s*-\s*(?=\d)/g,'$1 ');
+  s=s.replace(/([a-z])(\d)/g,'$1 $2').replace(/(\d)([a-z])/g,'$1 $2');
+  s=s.replace(/(^|[^\d])\.(\d)/g,'$1 0.$2');
+  s=s.replace(/\.(?!\d)/g,' ').replace(/[,;:!?()\-]/g,' ');
+  const w=s.split(/\s+/).filter(Boolean), out=[];
+  for(let i=0;i<w.length;i++){
+    const x=w[i];
+    if(/^\d+(\.\d+)?$/.test(x)){
+      let v=x;
+      if(!x.includes('.') && w[i+1]==='point'){ const d=digitsAfter(w,i+2); if(d.s){ v=x+'.'+d.s; i=d.end-1; } }
+      out.push({t:'num',v:parseFloat(v),s:v}); continue;
+    }
+    if(x in NUMW || x in TENS){
+      let cur=0,total=0,j=i,last=null,zeroLead=false;
+      while(j<w.length){
+        const y=w[j];
+        if(y in TENS){ if(last==='small'&&!zeroLead) break; if(last==='tens') break; cur+=TENS[y]; last='tens'; zeroLead=false; }
+        else if(y in NUMW){
+          if(last==='small'&&!zeroLead) break;
+          if(last==='tens'&&NUMW[y]>=10) break;
+          if(last===null&&NUMW[y]===0){ zeroLead=true; last='small'; j++; continue; }
+          cur+=NUMW[y]; last='small'; zeroLead=false;
+        }
+        else if(y==='hundred'){ cur=(cur||1)*100; last='hund'; }
+        else if(y==='thousand'){ total+=(cur||1)*1000; cur=0; last='thou'; }
+        else if(y==='and' && (last==='hund'||last==='thou') && (w[j+1] in NUMW || w[j+1] in TENS)){ j++; continue; }
+        else break;
+        j++;
+      }
+      let v=String(total+cur);
+      if(w[j]==='point'){ const d=digitsAfter(w,j+1); if(d.s){ v+='.'+d.s; j=d.end; } }
+      i=j-1;
+      out.push({t:'num',v:parseFloat(v),s:v}); continue;
+    }
+    if(x in QW){ out.push({t:'q',v:QW[x]}); continue; }
+    if(x in UNITW){ out.push({t:'u',v:UNITW[x]}); continue; }
+    if(x in DISTW){ out.push({t:'d',v:DISTW[x][0],f:DISTW[x][1]}); continue; }
+    if(x==="'"){ out.push({t:'tick'}); continue; }
+    if(x==='"'){ out.push({t:'dtick'}); continue; }
+    if(x==='due'){ out.push({t:'due'}); continue; }
+    // anything else ("thence", "a", "distance of"...) is ignored
+  }
+  return out;
+}
+
+function fromDDMMSS(str){
+  const [a,b0='']=str.split('.');
+  const b=b0.padEnd(4,'0');
+  const sec=b.slice(2,4)+(b.length>4?'.'+b.slice(4):'');
+  return {d:+a,m:+b.slice(0,2),s:parseFloat(sec)};
+}
+
+function checkDMS(r){
+  let {d,m,s}=r;
+  if(d===null) return {err:'Missing degrees'};
+  if(!Number.isInteger(d)){
+    if(m||s) return {err:'Decimal degrees with minutes'};
+    const tot=d*3600; d=Math.floor(d); m=Math.floor((tot-d*3600)/60); s=+(tot-d*3600-m*60).toFixed(2);
+  }
+  if(!Number.isInteger(m)){
+    if(s) return {err:'Decimal minutes with seconds'};
+    const mm=m; m=Math.floor(mm); s=+((mm-m)*60).toFixed(2);
+  }
+  if(d>90) return {err:`Degrees ${d} > 90`};
+  if(m>=60) return {err:`Minutes ${m} ≥ 60`};
+  if(s>=60) return {err:`Seconds ${s} ≥ 60`};
+  if(d===90&&(m||s)) return {err:'Bearing exceeds 90°'};
+  return {d,m,s};
+}
+
+function bearingFrom(ts){
+  const order=['deg','min','sec'], slot={deg:null,min:null,sec:null};
+  const nums=ts.filter(t=>t.t==='num');
+  if(!nums.length) return {err:'Missing angle'};
+  const labeled=ts.some(t=>t.t==='u'||t.t==='tick'||t.t==='dtick');
+  if(nums.length===1 && !labeled && nums[0].s.includes('.')) return checkDMS(fromDDMMSS(nums[0].s));
+  let cur=0;
+  for(let k=0;k<ts.length;k++){
+    const t=ts[k]; if(t.t!=='num') continue;
+    const nx=ts[k+1]; let u=null;
+    if(nx&&nx.t==='u') u=nx.v; else if(nx&&nx.t==='tick') u='min'; else if(nx&&nx.t==='dtick') u='sec';
+    if(u){ if(slot[u]!==null) return {err:'Repeated '+u}; slot[u]=t.v; cur=order.indexOf(u)+1; k++; }
+    else { if(cur>2) return {err:'Too many numbers in bearing'}; if(slot[order[cur]]!==null) return {err:'Bearing numbers out of order'}; slot[order[cur]]=t.v; cur++; }
+  }
+  return checkDMS({d:slot.deg,m:slot.min||0,s:slot.sec||0});
+}
+
+function parseAll(text){
+  const tk=tokenize(text), calls=[];
+  let i=0;
+  const fail=e=>({calls,err:e});
+  while(i<tk.length){
+    while(i<tk.length && tk[i].t!=='q' && tk[i].t!=='due') i++;
+    if(i>=tk.length) break;
+    const q1=tk[i]; let bear, k;
+    if(q1.t==='due' || /[EW]/.test(q1.v)){
+      const q=q1.t==='due'?tk[i+1]:q1;
+      if(!q||q.t!=='q') return fail('"Due" must be followed by a direction');
+      bear={...DUE[q.v]}; k=i+(q1.t==='due'?2:1);
+    } else {
+      let j=i+1;
+      while(j<tk.length && tk[j].t!=='q' && tk[j].t!=='d' && tk[j].t!=='due') j++;
+      if(j<tk.length && tk[j].t==='q' && /[EW]/.test(tk[j].v)){
+        const r=bearingFrom(tk.slice(i+1,j));
+        if(r.err) return fail(r.err);
+        bear={ns:q1.v,ew:tk[j].v,...r}; k=j+1;
+      } else {
+        const between=tk.slice(i+1,j);
+        if(between.some(t=>t.t==='u'||t.t==='dtick') || between.filter(t=>t.t==='num').length>1) return fail('Missing East / West');
+        bear={...DUE[q1.v]}; k=i+1;
+      }
+    }
+    const nums=[];
+    while(k<tk.length && tk[k].t==='num'){ nums.push(tk[k]); k++; }
+    if(!nums.length) return fail('Missing distance');
+    let unit='ft', f=1;
+    if(k<tk.length && tk[k].t==='d'){ unit=tk[k].v; f=tk[k].f; k++; }
+    else if(k<tk.length && tk[k].t==='tick') k++;
+    let raw;
+    if(nums.length===1) raw=nums[0].v;
+    else if(nums.every(n=>Number.isInteger(n.v))) raw=parseFloat(nums.map(n=>n.s).join(''));
+    else return fail('Unclear distance');
+    if(!(raw>0)) return fail('Distance must be > 0');
+    calls.push({...bear,rawDist:raw,unit,dist:raw*f});
+    i=k;
+  }
+  if(!calls.length) return fail('No bearing found — start with North or South');
+  return {calls,err:null};
+}
+
+const pad2=n=>String(n).padStart(2,'0');
+function secPart(s){ const [a,b='']=String(s).split('.'); return pad2(a)+b; }
+function fileLine(c,dp=2){ return `${c.ns} ${c.d}.${pad2(c.m)}${secPart(c.s)} ${c.ew} ${c.dist.toFixed(dp)}`; }
+function dmsText(c){ return `${c.ns} ${c.d}°${pad2(c.m)}'${pad2(c.s)}" ${c.ew}`; }
+const DIRN={N:'North',S:'South',E:'East',W:'West'};
+function speakText(c){
+  let t=`${DIRN[c.ns]} ${c.d} degrees`;
+  if(c.m||c.s) t+=`, ${c.m} minutes`;
+  if(c.s) t+=`, ${c.s} seconds`;
+  return `${t}, ${DIRN[c.ew]}. ${c.rawDist} ${c.unit==='ft'?'feet':c.unit}.`;
+}
+function editText(c){ return `${c.ns} ${c.d}.${pad2(c.m)}${secPart(c.s)} ${c.ew} ${c.rawDist} ${c.unit}`; }
+function detectCommand(t){
+  const s=t.toLowerCase().trim();
+  if(/\d/.test(s)) return null;
+  if(/\b(undo|scratch that|delete( last| that)?|remove( last| that)?)\b/.test(s)) return 'undo';
+  if(/\b(read back|readback|repeat( that)?|say again)\b/.test(s)) return 'readback';
+  if(/^\s*save( file)?\s*$/.test(s)) return 'save';
+  return null;
+}
+// ==END PARSER==
+
+// ---------- app ----------
+const $=id=>document.getElementById(id);
+const KEY='deedVoice.v1';
+let calls=[], sel=-1, history=[], fileHandle=null, fileName='', opts={readback:true};
+
+function load(){
+  try{ const o=JSON.parse(localStorage.getItem(KEY)||'{}'); calls=o.calls||[]; opts={...opts,...(o.opts||{})}; fileName=o.fileName||''; }catch(e){}
+}
+function persist(){ try{ localStorage.setItem(KEY,JSON.stringify({calls,opts,fileName})); }catch(e){} }
+function snapshot(){ history.push(JSON.stringify(calls)); if(history.length>100) history.shift(); }
+function undo(){
+  if(!history.length){ toast('Nothing to undo'); return; }
+  calls=JSON.parse(history.pop()); sel=Math.min(sel,calls.length-1); render(); persist(); setStatus('Undone','ok');
+}
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove('show'),1800); }
+function setStatus(msg,cls=''){ const s=$('status'); s.textContent=msg; s.className=cls; }
+
+let actx=null;
+function beep(freq=220,ms=180){
+  try{
+    actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.frequency.value=freq; g.gain.value=0.15; o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime+ms/1000);
+  }catch(e){}
+}
+function speak(text){
+  if(!opts.readback || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.rate=1.05; speechSynthesis.speak(u);
+}
+
+function addCalls(arr,raw){
+  snapshot();
+  arr.forEach(c=>c.raw=raw||'');
+  let at;
+  if(sel>=0){ at=sel+1; calls.splice(at,0,...arr); sel=at+arr.length-1; }
+  else { at=calls.length; calls.push(...arr); }
+  render(at,arr.length); persist();
+}
+
+function render(flashAt=-1,flashN=0){
+  const tb=$('rows'); tb.innerHTML='';
+  calls.forEach((c,i)=>{
+    const tr=document.createElement('tr');
+    tr.className='row'+(i===sel?' sel':'')+(i>=flashAt&&i<flashAt+flashN?' flash':'');
+    tr.dataset.i=i;
+    const distTxt=c.unit==='ft'?`${c.dist.toFixed(2)} ft`:`${c.dist.toFixed(2)} ft <span style="color:var(--muted);font-size:12px">(${c.rawDist} ${c.unit})</span>`;
+    tr.innerHTML=`<td class="n">${i+1}</td><td class="b">${dmsText(c)}</td><td class="d">${distTxt}</td><td class="f">${fileLine(c)}</td><td class="raw"></td><td class="x"><button data-a="edit" title="Edit">✎</button> <button data-a="del" title="Delete">✕</button></td>`;
+    const rawTd=tr.querySelector('.raw'); rawTd.textContent=c.raw||''; rawTd.title=c.raw||'';
+    tb.appendChild(tr);
+  });
+  $('empty').style.display=calls.length?'none':'block';
+  $('fileName').textContent=(fileName||'unsaved')+` · ${calls.length} call${calls.length===1?'':'s'}`+(sel>=0?` · inserting after #${sel+1}`:'');
+  if(flashAt>=0){ const r=tb.children[flashAt+flashN-1]; if(r) r.scrollIntoView({block:'nearest'}); }
+}
+
+$('rows').addEventListener('click',e=>{
+  const tr=e.target.closest('tr.row'); if(!tr) return;
+  const i=+tr.dataset.i, a=e.target.dataset.a;
+  if(a==='del'){ snapshot(); calls.splice(i,1); if(sel>=calls.length) sel=calls.length-1; if(sel===i) sel=-1; render(); persist(); return; }
+  if(a==='edit'){ startEdit(i); return; }
+  if(tr.querySelector('.editbox')) return;
+  sel=(sel===i)?-1:i; render();
+});
+$('rows').addEventListener('dblclick',e=>{ const tr=e.target.closest('tr.row'); if(tr&&!e.target.dataset.a) startEdit(+tr.dataset.i); });
+
+function startEdit(i){
+  const tr=$('rows').children[i]; if(!tr) return;
+  const td=tr.querySelector('.b'); const c=calls[i];
+  tr.querySelector('.d').textContent=''; tr.querySelector('.f').textContent='';
+  td.colSpan=3; tr.querySelector('.d').remove(); tr.querySelector('.f').remove();
+  td.innerHTML=`<input class="editbox" spellcheck="false">`;
+  const box=td.firstChild; box.value=editText(c); box.focus(); box.select();
+  let done=false;
+  box.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Escape'){ done=true; render(); }
+    if(e.key==='Enter'){
+      const r=parseAll(box.value);
+      if(r.err||r.calls.length!==1){ beep(); toast(r.err||'Enter exactly one call'); return; }
+      done=true; snapshot(); r.calls[0].raw=c.raw; calls[i]=r.calls[0]; render(i,1); persist();
+    }
+  });
+  box.addEventListener('blur',()=>{ if(!done) render(); });
+}
+
+function handleText(text,alts=[]){
+  const cmd=detectCommand(text);
+  if(cmd==='undo'){ undo(); return true; }
+  if(cmd==='readback'){ const c=calls[sel>=0?sel:calls.length-1]; if(c){ speak(speakText(c)); setStatus('Reading back','ok'); } else setStatus('Nothing to read','bad'); return true; }
+  if(cmd==='save'){ save(false); return true; }
+  const cands=[text,...alts.filter(a=>a&&a!==text)];
+  let first=null;
+  for(const t of cands){
+    const r=parseAll(t);
+    if(!first) first=r;
+    if(!r.err){ addCalls(r.calls,t); setStatus(`Added ${r.calls.length===1?dmsText(r.calls[0]):r.calls.length+' calls'}`,'ok'); speak(r.calls.map(speakText).join(' Next. ')); return true; }
+  }
+  setStatus(`Not understood: ${first.err}`,'bad'); beep();
+  $('manual').value=text;
+  speak('Not understood.');
+  return false;
+}
+
+// manual entry
+$('manual').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ const v=$('manual').value.trim(); if(v && handleText(v)) $('manual').value=''; }
+  if(e.key==='Escape') $('manual').blur();
+});
+$('btnAdd').onclick=()=>{ const v=$('manual').value.trim(); if(v && handleText(v)) $('manual').value=''; };
+
+// ---------- speech recognition: hold to talk ----------
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null, holding=false, running=false, finals=[], interimTxt='';
+
+function showInterim(){
+  const f=finals.map(a=>a[0]).join(' ');
+  $('interim').innerHTML='';
+  const a=document.createElement('span'); a.className='final'; a.textContent=f+' ';
+  const b=document.createElement('span'); b.className='tentative'; b.textContent=interimTxt;
+  $('interim').append(a,b);
+}
+
+if(!SR){
+  const w=$('warn'); w.style.display='block';
+  w.textContent='Speech recognition is not available in this browser. Use Chrome or Edge. Typed entry still works.';
+} else {
+  rec=new SR();
+  rec.lang='en-US'; rec.continuous=true; rec.interimResults=true; rec.maxAlternatives=5;
+  rec.onstart=()=>{ running=true; };
+  rec.onaudiostart=()=>{ if(holding) setStatus('Listening… (mic open)','listening'); };
+  rec.onspeechstart=()=>{ if(holding) setStatus('Hearing speech…','listening'); };
+  rec.onresult=e=>{
+    interimTxt='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i];
+      if(r.isFinal) finals.push(Array.from(r).map(a=>a.transcript.trim()));
+      else interimTxt+=r[0].transcript;
+    }
+    showInterim();
+  };
+  rec.onerror=e=>{
+    if(e.error==='aborted') return;
+    if(e.error==='no-speech'){ lastErr='No speech detected — check that the right mic is selected and its level is up'; return; }
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){ micReady=false; updateMicBar(); }
+    lastErr=null;
+    const msg={ 'not-allowed':'Microphone blocked — allow mic access for this page.', 'service-not-allowed':'Microphone blocked — allow mic access for this page.', 'network':'Speech service unreachable — Chrome/Edge recognition needs internet.', 'audio-capture':'No microphone found.' }[e.error]||('Speech error: '+e.error);
+    setStatus(msg,'bad'); holding=false; $('mic').classList.remove('on');
+  };
+  rec.onend=()=>{
+    running=false;
+    if(holding){ try{ rec.start(); }catch(e){} return; }   // Chrome timed out mid-hold: keep listening
+    finishUtterance();
+  };
+}
+
+// ---------- microphone permission (grant once, before talking) ----------
+const isFile=location.protocol==='file:';
+let micReady=false, lastErr=null;
+function updateMicBar(){
+  const bar=$('micbar');
+  if(!rec || micReady){ bar.style.display='none'; return; }
+  bar.style.display='flex';
+  $('micbarText').textContent = isFile
+    ? 'Click "Enable microphone" and choose Allow before talking. (Opened from a file, Edge will ask again each time you open the page. Hosting it on GitHub Pages makes Edge remember.)'
+    : 'Click "Enable microphone" and choose Allow before talking.';
+}
+async function primeMic(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ micReady=true; updateMicBar(); return true; }
+  setStatus('Waiting for microphone permission…');
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:true});
+    const label=(s.getAudioTracks()[0]||{}).label||'';
+    s.getTracks().forEach(t=>t.stop());
+    micReady=true; updateMicBar();
+    setStatus('Microphone ready'+(label?` (${label})`:'')+' — hold Space and say a call','ok');
+    return true;
+  }catch(e){
+    micReady=false; updateMicBar();
+    const m={NotAllowedError:'Microphone permission denied — click the lock icon in the address bar and allow Microphone',NotFoundError:'No microphone found — check Windows Sound → Input',NotReadableError:'Microphone is in use by another app or blocked by Windows'}[e.name]||('Microphone error: '+e.name);
+    setStatus(m,'bad'); return false;
+  }
+}
+$('btnMic').onclick=()=>primeMic();
+(async()=>{
+  if(!rec) return;
+  try{
+    const p=await navigator.permissions.query({name:'microphone'});
+    micReady = p.state==='granted';
+    p.onchange=()=>{ micReady=p.state==='granted'; updateMicBar(); };
+  }catch(e){}
+  updateMicBar();
+})();
+
+function startTalk(){
+  if(!rec||holding) return;
+  if(!micReady){ setStatus('Click "Enable microphone" first and choose Allow','bad'); $('btnMic').focus(); return; }
+  lastErr=null;
+  holding=true; finals=[]; interimTxt=''; showInterim();
+  if(window.speechSynthesis) speechSynthesis.cancel();
+  $('mic').classList.add('on'); setStatus('Listening…','listening');
+  if(!running){ try{ rec.start(); }catch(e){} }
+}
+function stopTalk(){
+  if(!rec||!holding) return;
+  holding=false; $('mic').classList.remove('on'); setStatus('Processing…');
+  try{ rec.stop(); }catch(e){ finishUtterance(); }
+}
+function finishUtterance(){
+  if(interimTxt.trim()){ finals.push([interimTxt.trim()]); interimTxt=''; }
+  if(!finals.length){ if(!/Microphone|Speech|No micro/.test($('status').textContent)) setStatus(lastErr||'Nothing heard — hold Space a moment before speaking and keep holding until you finish','bad'); return; }
+  const top=finals.map(a=>a[0]).join(' ');
+  let alts=[];
+  if(finals.length===1) alts=finals[0].slice(1);
+  else { const head=finals.slice(0,-1).map(a=>a[0]).join(' '); alts=finals[finals.length-1].slice(1).map(a=>head+' '+a); }
+  showInterim();
+  handleText(top,alts);
+  finals=[];
+}
+
+document.addEventListener('keydown',e=>{
+  const inField=e.target.matches('input,textarea');
+  if(e.code==='Space' && !inField){ e.preventDefault(); if(!e.repeat) startTalk(); return; }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); save(e.shiftKey); return; }
+  if(inField) return;
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
+  if(e.key==='Escape'){ sel=-1; render(); }
+  if(e.key==='Delete' && sel>=0){ snapshot(); calls.splice(sel,1); sel=Math.min(sel,calls.length-1); render(); persist(); }
+});
+document.addEventListener('keyup',e=>{
+  if(e.code==='Space' && !e.target.matches('input,textarea')){ e.preventDefault(); stopTalk(); }
+});
+window.addEventListener('blur',()=>stopTalk());
+
+const mic=$('mic');
+mic.addEventListener('pointerdown',e=>{ e.preventDefault(); mic.setPointerCapture(e.pointerId); startTalk(); });
+mic.addEventListener('pointerup',()=>stopTalk());
+mic.addEventListener('pointercancel',()=>stopTalk());
+mic.addEventListener('keydown',e=>{ if(e.code==='Space') e.preventDefault(); });
+
+// ---------- file ----------
+function fileText(){ return calls.map(c=>fileLine(c)).join('\r\n')+(calls.length?'\r\n':''); }
+
+async function save(as){
+  if(!calls.length){ toast('Nothing to save'); return; }
+  const text=fileText();
+  if(window.showSaveFilePicker){
+    try{
+      if(as||!fileHandle){
+        fileHandle=await showSaveFilePicker({suggestedName:fileName||'deed_calls.txt',types:[{description:'Text file',accept:{'text/plain':['.txt']}}]});
+      }
+      const w=await fileHandle.createWritable(); await w.write(text); await w.close();
+      fileName=fileHandle.name; persist(); render(); toast('Saved '+fileName); setStatus('Saved '+fileName,'ok');
+    }catch(e){ if(e.name!=='AbortError') toast('Save failed: '+e.message); }
+  } else {
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+    a.download=fileName||'deed_calls.txt'; a.click(); URL.revokeObjectURL(a.href);
+    toast('Downloaded');
+  }
+}
+
+$('btnSave').onclick=()=>save(false);
+$('btnSaveAs').onclick=()=>save(true);
+$('btnCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(fileText()); toast('Copied to clipboard'); }catch(e){ toast('Copy failed'); } };
+$('btnClear').onclick=()=>{ if(!calls.length||!confirm('Clear all calls?')) return; snapshot(); calls=[]; sel=-1; fileHandle=null; fileName=''; render(); persist(); };
+
+$('btnOpen').onclick=async()=>{
+  if(window.showOpenFilePicker){
+    try{
+      const [h]=await showOpenFilePicker({types:[{description:'Text file',accept:{'text/plain':['.txt']}}]});
+      loadText(await (await h.getFile()).text(), h.name); fileHandle=h;
+    }catch(e){ if(e.name!=='AbortError') toast('Open failed: '+e.message); }
+  } else $('fileInput').click();
+};
+$('fileInput').onchange=async e=>{ const f=e.target.files[0]; if(f){ loadText(await f.text(),f.name); fileHandle=null; } e.target.value=''; };
+
+function loadText(txt,name){
+  const out=[], bad=[];
+  txt.split(/\r?\n/).forEach((ln,i)=>{ if(!ln.trim()) return; const r=parseAll(ln); if(r.err||r.calls.length!==1) bad.push(i+1); else { r.calls[0].raw=''; out.push(r.calls[0]); } });
+  if(calls.length && !confirm(`Replace the current ${calls.length} calls?`)) return;
+  snapshot(); calls=out; sel=-1; fileName=name; render(); persist();
+  toast(`Loaded ${out.length} calls`+(bad.length?` — skipped line(s) ${bad.join(', ')}`:''));
+}
+
+$('optReadback').onchange=e=>{ opts.readback=e.target.checked; persist(); if(!opts.readback&&window.speechSynthesis) speechSynthesis.cancel(); };
+
+load();
+$('optReadback').checked=opts.readback;
+render();
+</script>
+</body>
+</html>
