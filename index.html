@@ -58,6 +58,12 @@ tr.row.flash td{animation:flash 1.2s}
 .help kbd{font:12px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 4px}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast.show{opacity:.95}
+#aliasPanel{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#aliasPanel summary{cursor:pointer;font-weight:600}
+#aliasPanel p{font-size:13px;color:var(--muted);margin:8px 0}
+#aliasText{width:100%;font:14px var(--mono);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text)}
+.aliasbtns{margin-top:8px;display:flex;gap:10px;align-items:center}
+#aliasMsg{font-size:13px;color:var(--ok)}
 #micbar{display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px}
 #micbar span{flex:1;min-width:220px}
 #warn{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--warn);border-radius:8px;color:var(--warn)}
@@ -111,6 +117,14 @@ tr.row.flash td{animation:flash 1.2s}
     Say: "North 45 degrees 30 minutes 15 seconds East 125.5 feet", or "north 45 30 15 east 125.5",
     or "due west 80 feet". Poles, rods, perches, chains and links convert to feet.
   </div>
+
+  <details id="aliasPanel">
+    <summary>Word corrections (fix mis-heard words)</summary>
+    <p>One per line: <code>heard word = meant word</code>. Check the <b>Heard</b> column to see what the recognizer wrote.
+      Common ones (shapiro → south, yeast → east, vest → west, decrees → degrees…) are already built in.</p>
+    <textarea id="aliasText" rows="6" spellcheck="false" placeholder="shapiro = south&#10;nora = north"></textarea>
+    <div class="aliasbtns"><button id="btnAliasSave" class="primary">Save corrections</button> <span id="aliasMsg"></span></div>
+  </details>
 </main>
 <div id="toast"></div>
 
@@ -135,8 +149,40 @@ function digitsAfter(w,i){ // "point five zero" / "point 50"
   return {s,end:j};
 }
 
+// Sound-alike fixes: what the recognizer writes -> what you meant.
+const BUILTIN_ALIASES={
+  'shapiro':'south','sowth':'south','sound':'south','sought':'south','souths':'south','sow':'south',
+  'nor th':'north','norse':'north','nord':'north','norte':'north','north\'s':'north',
+  'yeast':'east','eats':'east','eest':'east','easts':'east',
+  'vest':'west','waist':'west','quest':'west','wes':'west','wests':'west',
+  'decrees':'degrees','degree\'s':'degrees','digress':'degrees','degrease':'degrees','agrees':'degrees',
+  'minute\'s':'minutes','minits':'minutes','mins':'minutes',
+  'second\'s':'seconds','secs':'seconds',
+  'feat':'feet','fete':'feet','foot\'s':'feet'
+};
+let USER_ALIASES={};
+function aliasPairs(){
+  const all={...BUILTIN_ALIASES,...USER_ALIASES};
+  return Object.keys(all).sort((a,b)=>b.length-a.length).map(k=>[k,all[k]]);
+}
+function applyAliases(s){
+  for(const [from,to] of aliasPairs()){
+    const esc=from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    s=s.replace(new RegExp('(^|[^a-z\'])'+esc+'(?=$|[^a-z\'])','g'),'$1'+to);
+  }
+  return s;
+}
+function parseAliasText(txt){
+  const out={};
+  String(txt).split(/\r?\n/).forEach(ln=>{
+    const m=ln.match(/^\s*(.+?)\s*(?:=|->|→)\s*(.+?)\s*$/);
+    if(m) out[m[1].toLowerCase()]=m[2].toLowerCase();
+  });
+  return out;
+}
+
 function tokenize(text){
-  let s=' '+String(text).toLowerCase()+' ';
+  let s=' '+applyAliases(String(text).toLowerCase())+' ';
   s=s.replace(/[’‘′]/g,"'").replace(/[”“″]/g,'"');
   s=s.replace(/'s\b/g,'');
   s=s.replace(/[°º]/g,' deg ').replace(/'/g," ' ").replace(/"/g,' " ');
@@ -582,7 +628,18 @@ function loadText(txt,name){
 
 $('optReadback').onchange=e=>{ opts.readback=e.target.checked; persist(); if(!opts.readback&&window.speechSynthesis) speechSynthesis.cancel(); };
 
+$('btnAliasSave').onclick=()=>{
+  opts.aliasText=$('aliasText').value;
+  USER_ALIASES=parseAliasText(opts.aliasText);
+  persist();
+  const n=Object.keys(USER_ALIASES).length;
+  $('aliasMsg').textContent=`Saved ${n} correction${n===1?'':'s'}`;
+  setTimeout(()=>$('aliasMsg').textContent='',2500);
+};
+
 load();
+$('aliasText').value=opts.aliasText||'';
+USER_ALIASES=parseAliasText(opts.aliasText||'');
 $('optReadback').checked=opts.readback;
 render();
 </script>
