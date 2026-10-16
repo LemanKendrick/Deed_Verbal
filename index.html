@@ -309,8 +309,17 @@ function parseAll(text){
     if(nums.length===1) raw=nums[0].v;
     else if(nums.every(n=>Number.isInteger(n.v))) raw=parseFloat(nums.map(n=>n.s).join(''));
     else return fail('Unclear distance');
-    if(!(raw>0)) return fail('Distance must be > 0');
-    calls.push({...bear,rawDist:raw,unit,dist:raw*f});
+    // compound distances: "7 poles 14 links", "3 chains and 25 links", "10 rods 5 feet"
+    const parts=[{v:raw,unit,f}];
+    while(k+1<tk.length && tk[k].t==='num' && tk[k+1].t==='d'){
+      parts.push({v:tk[k].v,unit:tk[k+1].v,f:tk[k+1].f}); k+=2;
+    }
+    if(k<tk.length && tk[k].t==='num') return fail('Unclear distance — say a unit after each part (e.g. 7 poles 14 links)');
+    const dist=parts.reduce((a,p)=>a+p.v*p.f,0);
+    if(!(dist>0)) return fail('Distance must be > 0');
+    const uname=p=>p.unit==='ft'?(p.v===1?'foot':'feet'):(p.v===1?p.unit.replace(/s$/,'').replace(/che$/,'ch'):p.unit);
+    const distText=parts.map(p=>`${p.v} ${uname(p)}`).join(' ');
+    calls.push({...bear,rawDist:parts.length>1?distText:raw,unit:parts.length>1?'mixed':unit,dist,distText});
     i=k;
   }
   if(!calls.length) return fail('No bearing found — start with North or South');
@@ -326,9 +335,10 @@ function speakText(c){
   let t=`${DIRN[c.ns]} ${c.d} degrees`;
   if(c.m||c.s) t+=`, ${c.m} minutes`;
   if(c.s) t+=`, ${c.s} seconds`;
-  return `${t}, ${DIRN[c.ew]}. ${c.rawDist} ${c.unit==='ft'?'feet':c.unit}.`;
+  return `${t}, ${DIRN[c.ew]}. ${distWords(c)}.`;
 }
-function editText(c){ return `${c.ns} ${c.d}.${pad2(c.m)}${secPart(c.s)} ${c.ew} ${c.rawDist} ${c.unit}`; }
+function distWords(c){ return c.distText || `${c.rawDist} ${c.unit==='ft'?'feet':c.unit}`; }
+function editText(c){ return `${c.ns} ${c.d}.${pad2(c.m)}${secPart(c.s)} ${c.ew} ${distWords(c)}`; }
 function detectCommand(t){
   const s=t.toLowerCase().trim();
   if(/\d/.test(s)) return null;
@@ -387,7 +397,7 @@ function render(flashAt=-1,flashN=0){
     const tr=document.createElement('tr');
     tr.className='row'+(i===sel?' sel':'')+(i>=flashAt&&i<flashAt+flashN?' flash':'');
     tr.dataset.i=i;
-    const distTxt=c.unit==='ft'?`${c.dist.toFixed(2)} ft`:`${c.dist.toFixed(2)} ft <span style="color:var(--muted);font-size:12px">(${c.rawDist} ${c.unit})</span>`;
+    const distTxt=c.unit==='ft'?`${c.dist.toFixed(2)} ft`:`${c.dist.toFixed(2)} ft <span style="color:var(--muted);font-size:12px">(${distWords(c)})</span>`;
     tr.innerHTML=`<td class="n">${i+1}</td><td class="b">${dmsText(c)}</td><td class="d">${distTxt}</td><td class="f">${fileLine(c)}</td><td class="raw"></td><td class="x"><button data-a="edit" title="Edit">✎</button> <button data-a="del" title="Delete">✕</button></td>`;
     const rawTd=tr.querySelector('.raw'); rawTd.textContent=c.raw||''; rawTd.title=c.raw||'';
     tb.appendChild(tr);
