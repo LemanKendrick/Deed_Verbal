@@ -111,6 +111,8 @@ tr.row.flash td{animation:flash 1.2s}
   <div class="help">
     <kbd>Space</kbd> hold to talk ·
     click a row to insert new calls after it (click again or <kbd>Esc</kbd> to return to end) ·
+    <kbd>↑</kbd>/<kbd>↓</kbd> select previous / next ·
+    <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> move the selected call up / down ·
     double-click to edit · <kbd>Del</kbd> deletes selected ·
     <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
     Voice commands: "undo" / "scratch that", "read back", "save".
@@ -391,6 +393,25 @@ function addCalls(arr,raw){
   render(at,arr.length); persist();
 }
 
+// move the selected call one place up (dir -1) or down (dir +1)
+function moveSel(dir){
+  if(sel<0){ toast('Select a call first (click it or use ↑ ↓)'); return; }
+  const to=sel+dir;
+  if(to<0||to>=calls.length){ beep(440,80); return; }
+  snapshot();
+  [calls[sel],calls[to]]=[calls[to],calls[sel]];
+  sel=to; render(sel,1); persist();
+  setStatus(`Moved ${dmsText(calls[sel])} to #${sel+1}`,'ok');
+}
+// arrow keys: select previous / next call (none selected: ↓ = first, ↑ = last)
+function stepSel(dir){
+  if(!calls.length) return;
+  if(sel<0) sel=dir>0?0:calls.length-1;
+  else sel=Math.max(0,Math.min(calls.length-1,sel+dir));
+  render();
+  const r=$('rows').children[sel]; if(r) r.scrollIntoView({block:'nearest'});
+}
+
 function render(flashAt=-1,flashN=0){
   const tb=$('rows'); tb.innerHTML='';
   calls.forEach((c,i)=>{
@@ -578,6 +599,12 @@ document.addEventListener('keydown',e=>{
   if(inField) return;
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
   if(e.key==='Escape'){ sel=-1; render(); }
+  if((e.key==='ArrowUp'||e.key==='ArrowDown') && !e.ctrlKey && !e.metaKey && !e.shiftKey){
+    e.preventDefault();
+    const dir=e.key==='ArrowUp'?-1:1;
+    if(e.altKey) moveSel(dir); else stepSel(dir);
+    return;
+  }
   if(e.key==='Delete' && sel>=0){ snapshot(); calls.splice(sel,1); sel=Math.min(sel,calls.length-1); render(); persist(); }
 });
 document.addEventListener('keyup',e=>{
