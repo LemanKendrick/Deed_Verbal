@@ -66,6 +66,10 @@ tr.row.flash td{animation:flash 1.2s}
 #aliasMsg{font-size:13px;color:var(--ok)}
 #micbar{display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px}
 #micbar span{flex:1;min-width:220px}
+#ask{border:1px solid var(--line);border-radius:10px;padding:18px 20px;background:var(--panel);color:var(--text);min-width:280px;max-width:90vw;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+#ask::backdrop{background:rgba(0,0,0,.35)}
+#askMsg{font-size:16px;margin:0 0 16px}
+#ask .btns{display:flex;gap:10px;justify-content:flex-end}
 #warn{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--warn);border-radius:8px;color:var(--warn)}
 </style>
 </head>
@@ -129,6 +133,10 @@ tr.row.flash td{animation:flash 1.2s}
   </details>
 </main>
 <div id="toast"></div>
+<dialog id="ask">
+  <p id="askMsg"></p>
+  <div class="btns"><button id="askNo">Cancel</button><button id="askYes" class="primary">OK</button></div>
+</dialog>
 
 <script>
 // ==PARSER== (no DOM dependencies)
@@ -366,6 +374,19 @@ function undo(){
   calls=JSON.parse(history.pop()); sel=Math.min(sel,calls.length-1); render(); persist(); setStatus('Undone','ok');
 }
 
+// in-page yes/no box (the browser's confirm() always shows "<site> says")
+function askConfirm(msg,yesLabel='OK'){
+  return new Promise(res=>{
+    const d=$('ask'); $('askMsg').textContent=msg; $('askYes').textContent=yesLabel;
+    const done=v=>{ d.close(); $('askYes').onclick=$('askNo').onclick=d.oncancel=null; res(v); };
+    $('askYes').onclick=()=>done(true);
+    $('askNo').onclick=()=>done(false);
+    d.oncancel=e=>{ e.preventDefault(); done(false); };   // Esc
+    // Space is the talk key - it must not press a button here
+    d.onkeydown=d.onkeyup=e=>{ if(e.code==='Space') e.preventDefault(); };
+    d.showModal(); $('askYes').focus();
+  });
+}
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove('show'),1800); }
 function setStatus(msg,cls=''){ const s=$('status'); s.textContent=msg; s.className=cls; }
 
@@ -593,6 +614,7 @@ function finishUtterance(){
 }
 
 document.addEventListener('keydown',e=>{
+  if($('ask').open) return;                 // keys belong to the confirm box
   const inField=e.target.matches('input,textarea');
   if(e.code==='Space' && !inField){ e.preventDefault(); if(!e.repeat) startTalk(); return; }
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); save(e.shiftKey); return; }
@@ -608,6 +630,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Delete' && sel>=0){ snapshot(); calls.splice(sel,1); sel=Math.min(sel,calls.length-1); render(); persist(); }
 });
 document.addEventListener('keyup',e=>{
+  if($('ask').open) return;
   if(e.code==='Space' && !e.target.matches('input,textarea')){ e.preventDefault(); stopTalk(); }
 });
 window.addEventListener('blur',()=>stopTalk());
@@ -643,24 +666,25 @@ async function save(as){
 $('btnSave').onclick=()=>save(false);
 $('btnSaveAs').onclick=()=>save(true);
 $('btnCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(fileText()); toast('Copied to clipboard'); }catch(e){ toast('Copy failed'); } };
-$('btnClear').onclick=()=>{ if(!calls.length||!confirm('Clear all calls?')) return; snapshot(); calls=[]; sel=-1; fileHandle=null; fileName=''; render(); persist(); };
+$('btnClear').onclick=async()=>{ if(!calls.length||!(await askConfirm('Clear all calls?','Clear'))) return; snapshot(); calls=[]; sel=-1; fileHandle=null; fileName=''; render(); persist(); };
 
 $('btnOpen').onclick=async()=>{
   if(window.showOpenFilePicker){
     try{
       const [h]=await showOpenFilePicker({types:[{description:'Text file',accept:{'text/plain':['.txt']}}]});
-      loadText(await (await h.getFile()).text(), h.name); fileHandle=h;
+      if(await loadText(await (await h.getFile()).text(), h.name)) fileHandle=h;
     }catch(e){ if(e.name!=='AbortError') toast('Open failed: '+e.message); }
   } else $('fileInput').click();
 };
-$('fileInput').onchange=async e=>{ const f=e.target.files[0]; if(f){ loadText(await f.text(),f.name); fileHandle=null; } e.target.value=''; };
+$('fileInput').onchange=async e=>{ const f=e.target.files[0]; if(f && await loadText(await f.text(),f.name)) fileHandle=null; e.target.value=''; };
 
-function loadText(txt,name){
+async function loadText(txt,name){
   const out=[], bad=[];
   txt.split(/\r?\n/).forEach((ln,i)=>{ if(!ln.trim()) return; const r=parseAll(ln); if(r.err||r.calls.length!==1) bad.push(i+1); else { r.calls[0].raw=''; out.push(r.calls[0]); } });
-  if(calls.length && !confirm(`Replace the current ${calls.length} calls?`)) return;
+  if(calls.length && !(await askConfirm(`Replace the current ${calls.length} calls?`,'Replace'))) return false;
   snapshot(); calls=out; sel=-1; fileName=name; render(); persist();
   toast(`Loaded ${out.length} calls`+(bad.length?` — skipped line(s) ${bad.join(', ')}`:''));
+  return true;
 }
 
 $('optReadback').onchange=e=>{ opts.readback=e.target.checked; persist(); if(!opts.readback&&window.speechSynthesis) speechSynthesis.cancel(); };
