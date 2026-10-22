@@ -627,7 +627,7 @@ async function save(as){
   if(window.showSaveFilePicker){
     try{
       if(as||!fileHandle){
-        fileHandle=await showSaveFilePicker({suggestedName:fileName||'deed_calls.txt',types:[{description:'Text file',accept:{'text/plain':['.txt']}}]});
+        fileHandle=await showSaveFilePicker({suggestedName:fileName||'__deed calls from Verbal.txt',types:[{description:'Text file',accept:{'text/plain':['.txt']}}]});
       }
       const w=await fileHandle.createWritable(); await w.write(text); await w.close();
       fileName=fileHandle.name; persist(); render(); toast('Saved '+fileName); setStatus('Saved '+fileName,'ok');
@@ -635,7 +635,7 @@ async function save(as){
   } else {
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
-    a.download=fileName||'deed_calls.txt'; a.click(); URL.revokeObjectURL(a.href);
+    a.download=fileName||'__deed calls from Verbal.txt'; a.click(); URL.revokeObjectURL(a.href);
     toast('Downloaded');
   }
 }
